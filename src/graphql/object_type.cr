@@ -97,32 +97,19 @@ module GraphQL::ObjectType
       end
     when Array
       json.array do
-        json_fragments = value.map_with_index do |v, i|
-          channel = Channel(JSONFragment | ::Exception).new
-
-          spawn do
-            fragment = _graphql_build_json_fragment(context, [path, i]) do |json|
-              _graphql_serialize(context, field, v, json).map do |error|
-                error.with_path(i).with_path(path)
+        val.each_with_index do |v, i|
+          case v
+          when ::GraphQL::ObjectType
+            json.object do
+              v._graphql_resolve(context, field.selections, json).each do |error|
+                errors << error.with_path(i).with_path(path)
               end
             end
-
-            channel.send(fragment)
-          rescue ex
-            # unhandled exception, bubble up
-            channel.send(ex)
+          when ::Enum
+            json.scalar(v.to_s)
+          else
+            v.to_json(json)
           end
-
-          channel
-        end
-
-        json_fragments.each do |channel|
-          fragment = channel.receive
-          raise fragment if fragment.is_a?(::Exception)
-          errors.concat fragment.errors
-
-          next if fragment.json.empty?
-          json.raw fragment.json
         end
       end
     when ::Enum
